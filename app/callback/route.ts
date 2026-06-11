@@ -4,6 +4,7 @@ import {
   HANDSHAKE_COOKIE,
   REFRESH_COOKIE,
   REFRESH_MAX_AGE,
+  appUrl,
   cookieOptions,
   makeOAuth,
 } from "../../lib/auth";
@@ -15,7 +16,7 @@ import {
 export async function GET(req: NextRequest) {
   const home = (error?: string) =>
     NextResponse.redirect(
-      new URL(error ? `/?auth_error=${error}` : "/", req.url),
+      appUrl(error ? `/?auth_error=${error}` : "/", req.url),
     );
 
   const code = req.nextUrl.searchParams.get("code");

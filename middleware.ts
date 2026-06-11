@@ -3,6 +3,7 @@ import {
   ACCESS_COOKIE,
   REFRESH_COOKIE,
   REFRESH_MAX_AGE,
+  appUrl,
   cookieOptions,
   makeOAuth,
 } from "./lib/auth";
@@ -22,7 +23,9 @@ export async function middleware(req: NextRequest) {
 
   try {
     const tokens = await oauth.refresh({ refreshToken });
-    const res = NextResponse.redirect(req.nextUrl);
+    const res = NextResponse.redirect(
+      appUrl(req.nextUrl.pathname + req.nextUrl.search, req.nextUrl),
+    );
     res.cookies.set(ACCESS_COOKIE, tokens.access_token, {
       ...cookieOptions,
       maxAge: tokens.expires_in,

@@ -13,9 +13,16 @@ export const HANDSHAKE_COOKIE = "bb_oauth_pending";
 
 export const REFRESH_MAX_AGE = 30 * 24 * 60 * 60;
 
-// Everything the member routes + components need. Scope names are exact-match
+// Everything the member routes + components need, including the pay button
+// (payment intents are scope-gated). Scope names are exact-match
 // ("read:profiles" is rejected) and routes outside these return 403.
-export const SCOPES = ["read:profile", "read:wallets", "read:checkins"];
+export const SCOPES = [
+  "read:profile",
+  "read:wallets",
+  "read:checkins",
+  "read:payment_intent",
+  "write:payment_intent",
+];
 
 export const cookieOptions = {
   httpOnly: true,
@@ -23,6 +30,16 @@ export const cookieOptions = {
   secure: process.env.NODE_ENV === "production",
   path: "/",
 } as const;
+
+/**
+ * Where browser-facing auth redirects land. Behind a tunnel (ngrok) the
+ * request URL the server sees carries the local host, not the public one — so
+ * derive the public origin from REDIRECT_URI (the OAuth session's cookies live
+ * on that host by definition) and fall back to the request URL without it.
+ */
+export function appUrl(path: string, requestUrl: string | URL): URL {
+  return new URL(path, process.env.REDIRECT_URI || requestUrl);
+}
 
 /** Build the SDK's OAuth helper from env, or null when the app isn't configured. */
 export function makeOAuth(): FlynetOAuth | null {

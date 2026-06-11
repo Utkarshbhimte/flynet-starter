@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlynetMemberClient } from "@flynetdev/core";
 import {
   FlynetProvider,
   WalletBadge,
-  usePassport,
+  profileQueryKey,
+  useFlynetMember,
   walletsQueryKey,
 } from "@flynetdev/react";
 import { BBPayButton, UserCard } from "../components";
@@ -113,9 +114,16 @@ function PaySection() {
   );
 }
 
-// Lives inside the provider so the passport hook can reach the member client.
+// Lives inside the provider so the hook can reach the member client. Fetches
+// only the profile (`GET /users/me`) — the SDK's usePassport also fetches
+// /users/me/status and fails the whole card when either call fails, and the
+// card only renders profile fields anyway.
 function MemberProfile() {
-  const { data, isPending, error } = usePassport();
+  const member = useFlynetMember();
+  const { data, isPending, error } = useQuery({
+    queryKey: profileQueryKey,
+    queryFn: () => member.getProfile(),
+  });
 
   if (isPending) {
     return (
@@ -129,5 +137,5 @@ function MemberProfile() {
       </p>
     );
   }
-  return <UserCard user={data.profile} />;
+  return <UserCard user={data} />;
 }

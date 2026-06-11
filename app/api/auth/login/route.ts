@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
   HANDSHAKE_COOKIE,
+  appUrl,
   cookieOptions,
   makeOAuth,
 } from "../../../../lib/auth";
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
   const oauth = makeOAuth();
   if (!oauth) {
     return NextResponse.redirect(
-      new URL("/?auth_error=missing_client_config", req.url),
+      appUrl("/?auth_error=missing_client_config", req.url),
     );
   }
 

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 import { FlynetDiscoveryClient, FlynetError } from "@flynetdev/core";
 import type { Restaurant } from "@flynetdev/react";
-import { LoginButton, RestaurantCard } from "../components";
+import { LoginButton, LogoutButton, RestaurantCard } from "../components";
 import { ACCESS_COOKIE } from "../lib/auth";
 import { listRestaurantLocations } from "../lib/locations";
 import { MemberPanel } from "./member-panel";
@@ -46,14 +46,7 @@ export default async function Home({
       {accessToken ? (
         <>
           <MemberPanel accessToken={accessToken} />
-          {signedInViaOAuth ? (
-            <a
-              href="/api/auth/logout"
-              className="text-sm text-muted underline underline-offset-4 hover:text-foreground"
-            >
-              Sign out
-            </a>
-          ) : null}
+          {signedInViaOAuth ? <LogoutButton href="/api/auth/logout" /> : null}
         </>
       ) : (
         <SignInNotice />
