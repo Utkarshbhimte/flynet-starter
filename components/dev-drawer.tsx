@@ -131,11 +131,25 @@ const OTHERS: JourneyStep[] = [
   },
 ];
 
+// Other components (e.g. the page's "get started" callout when env is missing)
+// open the drawer by dispatching this event, so they don't need a shared store.
+export const OPEN_DEV_SETUP_EVENT = "flynet:open-dev-setup";
+
 export function DevDrawer() {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("setup");
 
   const close = useCallback(() => setOpen(false), []);
+
+  // Let anything on the page open the drawer (always on the setup view).
+  useEffect(() => {
+    const onOpen = () => {
+      setView("setup");
+      setOpen(true);
+    };
+    window.addEventListener(OPEN_DEV_SETUP_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_DEV_SETUP_EVENT, onOpen);
+  }, []);
 
   // Escape steps back to the setup view first, then closes — so it never
   // surprises you by dismissing the whole drawer when you only meant to leave a
@@ -283,6 +297,28 @@ export function DevDrawer() {
         ) : null}
       </AnimatePresence>
     </>
+  );
+}
+
+// A button that opens the dev drawer from anywhere on the page (used by the
+// page's "get started" callout when the app has no credentials yet). It just
+// fires OPEN_DEV_SETUP_EVENT; DevDrawer listens. Safe to render in a Server
+// Component tree since it's a Client Component itself.
+export function OpenDevSetupButton({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => window.dispatchEvent(new Event(OPEN_DEV_SETUP_EVENT))}
+      className={className}
+    >
+      {children}
+    </button>
   );
 }
 

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { FlynetDiscoveryClient, FlynetError } from "@flynetdev/core";
 import type { Restaurant } from "@flynetdev/react";
 import { LoginButton, LogoutButton, RestaurantCard } from "../components";
+import { OpenDevSetupButton } from "../components/dev-drawer";
 import { ACCESS_COOKIE } from "../lib/auth";
 import { listRestaurantLocations } from "../lib/locations";
 import { env } from "../lib/env";
@@ -114,12 +115,30 @@ async function renderRestaurants(apiKey: string | undefined): Promise<ReactNode>
 }
 
 function SetupNotice() {
+  // The Dev Setup drawer only exists in dev builds (see layout.tsx). In dev,
+  // make the big call to action "open the drawer"; in production there's no
+  // drawer, so fall back to pointing at the hosting env vars.
+  const isDev = process.env.NODE_ENV !== "production";
   return (
-    <Notice title="Add your API key to start">
-      Copy <Code>.env.example</Code> to <Code>.env.local</Code> and set{" "}
-      <Code>FLYNET_API_KEY</Code> to your Flynet Discovery key, then reload. You&apos;ll
-      see real Blackbird restaurants here.
-    </Notice>
+    <div className="rounded-3xl border border-primary/30 bg-primary/5 p-8 text-center">
+      <p className="text-xs uppercase tracking-[0.2em] text-primary">
+        Get started
+      </p>
+      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
+        Add your Blackbird credentials
+      </h2>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted">
+        {isDev
+          ? "This app needs your Discovery API key and OAuth credentials to load real restaurant and member data. The Dev Setup drawer walks you through each one and verifies it before saving."
+          : "Set FLYNET_API_KEY and your OAuth credentials in your hosting environment variables, then redeploy to see real Blackbird data."}
+      </p>
+      {isDev ? (
+        <OpenDevSetupButton className="mt-6 inline-flex h-11 items-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-lg transition duration-150 hover:opacity-90 active:bg-primary-dim">
+          <span className="text-base leading-none">⚙</span>
+          Open Dev Setup
+        </OpenDevSetupButton>
+      ) : null}
+    </div>
   );
 }
 
