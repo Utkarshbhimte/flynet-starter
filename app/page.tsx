@@ -92,7 +92,7 @@ async function renderRestaurants(apiKey: string | undefined): Promise<ReactNode>
       ),
       Promise.all(
         restaurants.map((restaurant) =>
-          getRestaurantCheckInCount(apiKey, restaurant.id),
+          getRestaurantCheckInCount(apiKey, restaurant.id).catch(() => null),
         ),
       ),
     ]);
