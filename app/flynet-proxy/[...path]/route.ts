@@ -1,12 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-// Same-origin proxy for the browser-side member components. Staging rejects
-// any request carrying a localhost Origin header (403 "Invalid CORS request"),
+// Same-origin proxy for the browser-side member components. The Blackbird edge
+// rejects any request carrying a localhost Origin header (403 "Invalid CORS request"),
 // so a next.config rewrite — which forwards headers verbatim — doesn't work.
 // This handler forwards only what the upstream needs.
-// API_BASE_URL switches environments (unset = staging).
+// API_BASE_URL switches environments (unset = production).
 const UPSTREAM =
-  process.env.API_BASE_URL || "https://api.staging.blackbird.xyz/flynet/v1";
+  process.env.API_BASE_URL || "https://api.blackbird.xyz/flynet/v1";
 
 async function proxy(
   req: NextRequest,

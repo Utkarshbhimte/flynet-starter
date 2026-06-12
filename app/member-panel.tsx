@@ -20,9 +20,10 @@ export function MemberPanel({ accessToken }: { accessToken: string }) {
     () =>
       new FlynetMemberClient({
         accessToken,
-        // Staging blocks cross-origin browser requests (CORS), so route them
-        // through the same-origin proxy defined in next.config.mjs. The SDK
-        // requires an absolute URL; window is always defined by fetch time.
+        // The Blackbird edge blocks cross-origin browser requests (CORS), so
+        // route them through the same-origin proxy defined in next.config.mjs.
+        // The SDK requires an absolute URL; window is always defined by fetch
+        // time.
         ...(typeof window !== "undefined"
           ? { serverURL: `${window.location.origin}/flynet-proxy` }
           : {}),
@@ -45,8 +46,7 @@ export function MemberPanel({ accessToken }: { accessToken: string }) {
 }
 
 // Demo charge: 1 FLY (wei is a stringified integer, 18 decimals). The USD
-// label is display-only — the v1 API is FLY-denominated, and staging balances
-// track ~1 FLY ≈ $1.
+// label is display-only — the v1 API is FLY-denominated, with ~1 FLY ≈ $1.
 const DEMO_AMOUNT_FLY_WEI = "1000000000000000000";
 const DEMO_AMOUNT_USD_CENTS = 100;
 

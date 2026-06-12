@@ -16,7 +16,7 @@ through the SDK. Use it as the starting point for your own integration.
 git clone <your-fork-url> flynet-starter
 cd flynet-starter
 npm install
-cp .env.example .env.local      # then set BLACKBIRD_API_KEY in .env.local
+cp .env.example .env.local      # then set FLYNET_API_KEY in .env.local
 npm run dev
 ```
 
@@ -80,7 +80,7 @@ hexes):
 
 The wallet and passport need a member token. There are two ways to get one:
 
-1. **Sign in with Blackbird (default).** With `BLACKBIRD_CLIENT_ID`, `BLACKBIRD_CLIENT_SECRET`, and
+1. **Sign in with Blackbird (default).** With `FLYNET_CLIENT_ID`, `FLYNET_CLIENT_SECRET`, and
    `REDIRECT_URI` set, the page shows a sign-in button. It runs the full OAuth
    authorization-code + PKCE flow server-side via the SDK's `FlynetOAuth`
    helper: tokens are stored in HttpOnly cookies, the access token auto-renews
@@ -88,29 +88,32 @@ The wallet and passport need a member token. There are two ways to get one:
    out. `REDIRECT_URI` must exactly match a redirect URI registered for your
    OAuth app.
 
-   > **Local dev needs a tunnel.** The staging edge rejects `localhost` /
+   > **Local dev needs a tunnel.** The Blackbird edge rejects `localhost` /
    > `127.0.0.1` redirect URIs before they reach the OAuth server, so the
-   > sign-in flow can't complete on a bare localhost URL. Run
-   > `ngrok http 3000`, get `https://<your-subdomain>.ngrok.app/callback`
+   > sign-in flow can't complete on a bare localhost URL. First time with
+   > ngrok, make a free account at
+   > [dashboard.ngrok.com/signup](https://dashboard.ngrok.com/signup) and run
+   > `ngrok config add-authtoken <token>` once (it won't tunnel without it).
+   > Then run `ngrok http 3000`, get `https://<your-subdomain>.ngrok.app/callback`
    > whitelisted for your OAuth app through the Flynet developer portal, set it
    > as `REDIRECT_URI`, and open the app through the ngrok URL — the session
    > cookies are host-scoped, so the whole flow has to run on that host.
 2. **Pin a token.** Set `ACCESS_TOKEN` in `.env.local` (scopes `read:profile` +
-   `read:wallets`) and it takes precedence — no sign-in needed. Staging tokens
+   `read:wallets`) and it takes precedence — no sign-in needed. Access tokens
    expire after 60 minutes, so this is for quick poking, not sessions.
 
-The member components fetch from the browser, and staging only accepts
-registered origins — so the starter routes those calls through a same-origin
-proxy (`app/flynet-proxy/`).
+The member components fetch from the browser, and the Blackbird edge only
+accepts registered origins — so the starter routes those calls through a
+same-origin proxy (`app/flynet-proxy/`).
 
 ## Switching environments
 
-The starter targets **staging** by default. To run against production, set the
+The starter targets **production** by default. To run against staging, set the
 three optional env vars in `.env.local` — `API_BASE_URL`, `AUTH_BASE_URL`, and
-`AUTH_AUDIENCE` (values in `.env.example`) — and swap in your production
-credential set. Production access is gated by partner approval; you receive a
-separate `client_id`, `client_secret`, API key, registered redirect URI, and
-merchant id at production sign-off. Staging and production credentials are not
+`AUTH_AUDIENCE` (values in `.env.example`) — and swap in your staging credential
+set. Production access is gated by partner approval; you receive a separate
+`client_id`, `client_secret`, API key, registered redirect URI, and merchant id
+at production sign-off. Staging and production credentials are not
 interchangeable. Everything else (the proxy, the OAuth routes, the payment
 route) picks the environment up from those vars.
 

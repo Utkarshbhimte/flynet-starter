@@ -11,7 +11,7 @@ import {
 
 // OAuth callback (the registered redirect URI, /callback). Verifies the CSRF
 // state set by /api/auth/login, exchanges the single-use authorization code
-// server-side (with BLACKBIRD_CLIENT_SECRET + the PKCE verifier), and stores the tokens
+// server-side (with FLYNET_CLIENT_SECRET + the PKCE verifier), and stores the tokens
 // in HttpOnly cookies before bouncing back to the homepage.
 export async function GET(req: NextRequest) {
   const home = (error?: string) =>

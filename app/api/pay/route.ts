@@ -20,10 +20,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const merchantId = process.env.BLACKBIRD_MERCHANT_ID;
+  const merchantId = process.env.FLYNET_MERCHANT_ID;
   if (!merchantId) {
     return NextResponse.json(
-      { error: "BLACKBIRD_MERCHANT_ID is not set in .env.local." },
+      { error: "FLYNET_MERCHANT_ID is not set in .env.local." },
       { status: 500 },
     );
   }
@@ -42,10 +42,10 @@ export async function POST(req: Request) {
     );
   }
 
-  // API_BASE_URL switches environments; unset means the SDK's staging default.
+  // API_BASE_URL switches environments; unset means production.
   const member = new FlynetMemberClient({
     accessToken,
-    serverURL: process.env.API_BASE_URL || undefined,
+    serverURL: process.env.API_BASE_URL || "https://api.blackbird.xyz/flynet/v1",
   });
   const userId = getAuthenticatedUserId(accessToken);
 

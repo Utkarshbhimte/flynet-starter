@@ -19,7 +19,7 @@ export default async function Home({
 }: {
   searchParams: Promise<{ auth_error?: string }>;
 }) {
-  const apiKey = process.env.BLACKBIRD_API_KEY;
+  const apiKey = process.env.FLYNET_API_KEY;
   const { auth_error: authError } = await searchParams;
   const cookieToken = (await cookies()).get(ACCESS_COOKIE)?.value;
   const accessToken = process.env.ACCESS_TOKEN || cookieToken;
@@ -63,10 +63,10 @@ export default async function Home({
 async function renderRestaurants(apiKey: string | undefined): Promise<ReactNode> {
   if (!apiKey) return <SetupNotice />;
   try {
-    // API_BASE_URL switches environments; unset means the SDK's staging default.
+    // API_BASE_URL switches environments; unset means production.
     const discovery = new FlynetDiscoveryClient({
       apiKey,
-      serverURL: process.env.API_BASE_URL || undefined,
+      serverURL: process.env.API_BASE_URL || "https://api.blackbird.xyz/flynet/v1",
     });
     // The list includes unpublished records with blank names (production has
     // many, and blank names sort first) — over-fetch and keep the first 8
@@ -105,7 +105,7 @@ async function renderRestaurants(apiKey: string | undefined): Promise<ReactNode>
         : "Unexpected error.";
     return (
       <Notice tone="error" title="Couldn't load restaurants">
-        {message} Check that <Code>BLACKBIRD_API_KEY</Code> in <Code>.env.local</Code> is a
+        {message} Check that <Code>FLYNET_API_KEY</Code> in <Code>.env.local</Code> is a
         valid Flynet key.
       </Notice>
     );
@@ -116,7 +116,7 @@ function SetupNotice() {
   return (
     <Notice title="Add your API key to start">
       Copy <Code>.env.example</Code> to <Code>.env.local</Code> and set{" "}
-      <Code>BLACKBIRD_API_KEY</Code> to your Flynet Discovery key, then reload. You&apos;ll
+      <Code>FLYNET_API_KEY</Code> to your Flynet Discovery key, then reload. You&apos;ll
       see real Blackbird restaurants here.
     </Notice>
   );
@@ -127,8 +127,8 @@ function SignInNotice() {
     <Notice title="Your Blackbird account">
       <span className="block">
         Sign in with Blackbird to see your wallet and passport. The OAuth flow
-        runs server-side with your <Code>BLACKBIRD_CLIENT_ID</Code> /{" "}
-        <Code>BLACKBIRD_CLIENT_SECRET</Code> and keeps the tokens in HttpOnly cookies.
+        runs server-side with your <Code>FLYNET_CLIENT_ID</Code> /{" "}
+        <Code>FLYNET_CLIENT_SECRET</Code> and keeps the tokens in HttpOnly cookies.
         Setting <Code>ACCESS_TOKEN</Code> in <Code>.env.local</Code> skips the
         flow entirely.
       </span>
@@ -142,8 +142,8 @@ function SignInNotice() {
 function AuthErrorNotice({ error }: { error: string }) {
   return (
     <Notice tone="error" title="Sign-in didn't complete">
-      The OAuth flow failed (<Code>{error}</Code>). Check <Code>BLACKBIRD_CLIENT_ID</Code>,{" "}
-      <Code>BLACKBIRD_CLIENT_SECRET</Code>, and <Code>REDIRECT_URI</Code> in{" "}
+      The OAuth flow failed (<Code>{error}</Code>). Check <Code>FLYNET_CLIENT_ID</Code>,{" "}
+      <Code>FLYNET_CLIENT_SECRET</Code>, and <Code>REDIRECT_URI</Code> in{" "}
       <Code>.env.local</Code>, then try again.
     </Notice>
   );
