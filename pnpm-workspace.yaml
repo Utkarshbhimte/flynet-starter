@@ -1,0 +1,5 @@
+allowBuilds:
+  sharp: true
+minimumReleaseAgeExclude:
+  - '@flynetdev/core@0.6.0'
+  - '@flynetdev/react@0.6.0'

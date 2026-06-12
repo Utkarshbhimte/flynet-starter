@@ -11,3 +11,8 @@ build
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# dev-journey state lives in .flynet/ and IS committed (progress.json,
+# journey.json) — only the transient lockdirs and temp files are ignored
+.flynet/*.lock
+.flynet/*.tmp.*
