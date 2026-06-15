@@ -16,3 +16,7 @@ next-env.d.ts
 # journey.json) — only the transient lockdirs and temp files are ignored
 .flynet/*.lock
 .flynet/*.tmp.*
+
+# Local Claude Code sessions: the daemon's pidfile holds a token, and the
+# transcripts are per-machine runtime state — never commit them.
+.flynet/sessions/

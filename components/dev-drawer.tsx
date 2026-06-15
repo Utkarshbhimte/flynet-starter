@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 // Developer onboarding drawer. Renders only in dev (layout.tsx gates it on
@@ -18,7 +18,7 @@ import { AnimatePresence, motion } from "framer-motion";
 type FieldStatus = { isSet: boolean; masked: string | null };
 type NgrokStatus = { running: boolean; url: string | null };
 
-type View = "setup" | "prompts" | "progress" | "deploy";
+type View = "setup" | "prompts" | "progress" | "deploy" | "sessions";
 
 // The Blackbird credentials the setup step manages, in display order. `name`
 // matches the .env.local key the backend writes; `validates` notes how the
@@ -83,6 +83,11 @@ type JourneyStep = {
 };
 
 // Mandatory, linear, and completion-tracked via .flynet/journey.json.
+//
+// This mirrors Matt Pocock's recommended journey (grill → PRD → issues →
+// implement). The upstream flow keeps PRD and issues as two steps; locally
+// they're one `to-plan` run that writes both artifacts to the filesystem, so
+// the "Plan it out" card covers both.
 const STEPS: JourneyStep[] = [
   {
     id: "grill-with-docs",
@@ -95,31 +100,49 @@ const STEPS: JourneyStep[] = [
   {
     id: "to-plan",
     title: "Plan it out",
-    subtitle: "PRD plus sliced, local tasks",
+    subtitle: "PRD with user stories, then sliced into tickets",
     command: "/to-plan",
     prompt:
-      "Use the to-plan skill to turn my scoped idea into a PRD and slice it into thin, local end-to-end tasks.",
+      "Use the to-plan skill to turn my scoped idea into a PRD with user stories, then slice it into thin, local tickets with blocking relationships.",
   },
   {
     id: "to-work",
-    title: "Work it",
-    subtitle: "Agents build each slice, committing",
+    title: "Implement",
+    subtitle: "Loop a coding agent over every ticket",
     command: "/to-work",
     prompt:
-      "Use the to-work skill to spawn a subagent per slice and build them, committing per task and tracking progress.",
+      "Use the to-work skill to spawn a subagent per ticket and build them in a loop, committing per task and tracking progress.",
   },
 ];
 
-// Optional helpers — no clear "done", so they live in their own section and
-// aren't completion-tracked. Reach for them whenever they help.
+// Optional and supporting steps from the journey — no clear "done", so they
+// live in their own section and aren't completion-tracked. Reach for them when
+// they help: Research and Prototype slot in after grilling, Review comes after
+// implementing. Listed in journey order.
 const OTHERS: JourneyStep[] = [
+  {
+    id: "zoom-out",
+    title: "Research",
+    subtitle: "Cache the hard explore phases",
+    command: "/zoom-out",
+    prompt:
+      "Use the zoom-out skill to research the difficult 'explore' parts of this and cache what you learn as a research.md asset I can reuse during implementation.",
+  },
   {
     id: "prototype",
     title: "Prototype",
-    subtitle: "Spike the riskiest piece fast",
+    subtitle: "Hash out ideas in code for early feedback",
     command: "/prototype",
     prompt:
-      "Use the prototype skill to spike the riskiest part of this with throwaway code before I commit.",
+      "Use the prototype skill to hash out the riskiest ideas in throwaway code for early feedback, leaving assets I can reuse in the real implementation.",
+  },
+  {
+    id: "improve-codebase-architecture",
+    title: "Review",
+    subtitle: "QA plan + architecture review of the finished work",
+    command: "/improve-codebase-architecture",
+    prompt:
+      "Use the improve-codebase-architecture skill to review the completed work — surface architectural friction and produce a QA plan a human can run against it.",
   },
   {
     id: "diagnose",
@@ -179,6 +202,7 @@ export function DevDrawer() {
     prompts: { eyebrow: "Prompts", title: "Your hackathon dev journey" },
     progress: { eyebrow: "Progress", title: "Live task status" },
     deploy: { eyebrow: "Deploy", title: "Ship it to Vercel" },
+    sessions: { eyebrow: "Sessions", title: "Local Claude Code" },
   };
 
   return (
@@ -285,6 +309,7 @@ export function DevDrawer() {
                     {view === "prompts" ? <PromptsView /> : null}
                     {view === "progress" ? <ProgressView /> : null}
                     {view === "deploy" ? <DeployView /> : null}
+                    {view === "sessions" ? <SessionsView /> : null}
                   </motion.div>
                 </AnimatePresence>
               </div>
@@ -337,6 +362,11 @@ function SetupView({ setView }: { setView: (v: View) => void }) {
         title="Prompts"
         hint="The hackathon dev journey — which slash command to run, in order."
         onClick={() => setView("prompts")}
+      />
+      <NavCard
+        title="Sessions"
+        hint="Chat with Claude Code running on this machine — start and switch between sessions."
+        onClick={() => setView("sessions")}
       />
       <NavCard
         title="Build progress"
@@ -797,8 +827,9 @@ function PromptsView() {
   return (
     <div className="space-y-6">
       <p className="text-xs leading-relaxed text-subtle">
-        Run these in order. Tap a card to copy a prompt, then paste it to Claude.
-        Optional helpers live below — reach for them whenever they help.
+        Grill → plan → implement, in order. Tap a card to copy a prompt, then
+        paste it to Claude. Optional steps live below — Research and Prototype
+        slot in after grilling, Review comes after implementing.
       </p>
 
       {/* Mandatory, linear, completion-tracked. */}
@@ -1196,6 +1227,466 @@ function DeployView() {
         or sign-in will fail.
       </p>
     </div>
+  );
+}
+
+// ── Sessions view: chat with local Claude Code ───────────────────────────────
+// Drives the session daemon through /api/dev/sessions/*. The daemon owns the
+// `claude` processes out-of-process, so sessions keep running (and keep writing
+// transcripts) even when next dev restarts — this view just reconnects and
+// replays from a cursor, so a broken preview never loses the conversation.
+// Two modes: a session list, and an open session's chat.
+type SessionStatus = "idle" | "working" | "error";
+type SessionMeta = {
+  id: string;
+  title: string;
+  status: SessionStatus;
+  cwd: string;
+  live: boolean;
+  events: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type SessionEvent = {
+  seq: number;
+  ts: string;
+  type:
+    | "user"
+    | "assistant"
+    | "tool_use"
+    | "tool_result"
+    | "status"
+    | "result"
+    | "error"
+    | "log"
+    | "health"
+    | "fixer";
+  text?: string;
+  name?: string;
+  input?: unknown;
+  content?: string;
+  isError?: boolean;
+  status?: SessionStatus;
+  note?: string;
+  result?: string;
+  subtype?: string;
+  costUsd?: number;
+  durationMs?: number;
+  ok?: boolean;
+  phase?: string;
+};
+
+const SESSION_STYLE: Record<SessionStatus, { dot: string; label: string }> = {
+  idle: { dot: "bg-subtle", label: "text-muted" },
+  working: { dot: "bg-primary-bright", label: "text-primary-bright" },
+  error: { dot: "bg-failure", label: "text-failure" },
+};
+
+function SessionsView() {
+  const [activeId, setActiveId] = useState<string | null>(null);
+  return activeId ? (
+    <SessionDetail id={activeId} onBack={() => setActiveId(null)} />
+  ) : (
+    <SessionList onOpen={setActiveId} />
+  );
+}
+
+function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
+  const [sessions, setSessions] = useState<SessionMeta[] | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dev/sessions");
+      const data = await res.json();
+      setSessions(data.sessions ?? []);
+    } catch {
+      setSessions([]);
+    }
+  }, []);
+
+  // Poll so a session's status pip stays fresh while it works in the background.
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  async function start() {
+    const text = prompt.trim();
+    if (!text) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/dev/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: text }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.id)
+        throw new Error(data.error ?? "Could not start the session.");
+      setPrompt("");
+      onOpen(data.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* New session. */}
+      <section className="space-y-3 rounded-2xl border border-strong bg-surface-low/40 p-4">
+        <h3 className="text-sm font-semibold text-foreground">New session</h3>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) start();
+          }}
+          rows={3}
+          placeholder="What should Claude Code do? (⌘↵ to start)"
+          className="w-full resize-none rounded-xl border border-strong bg-surface-low px-3 py-2 text-sm text-foreground placeholder:text-subtle focus:border-primary focus:outline-none"
+          spellCheck={false}
+        />
+        <p className="text-[11px] leading-relaxed text-subtle">
+          Runs with full access (no permission prompts). When each turn
+          finishes, the dev server is checked — if a change broke it, a fixer
+          agent kicks in automatically.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={start}
+            disabled={creating || !prompt.trim()}
+            className="inline-flex h-9 items-center justify-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:opacity-90 active:bg-primary-dim disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {creating ? "Starting…" : "Start session"}
+          </button>
+          {error ? <span className="text-xs text-failure">{error}</span> : null}
+        </div>
+      </section>
+
+      {/* Existing sessions. */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+          Sessions
+        </h3>
+        {sessions == null ? (
+          <Skeleton />
+        ) : sessions.length === 0 ? (
+          <p className="text-xs text-subtle">
+            No sessions yet — start one above and it&apos;ll keep running here,
+            even across dev-server restarts.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {sessions.map((s) => {
+              const style = SESSION_STYLE[s.status] ?? SESSION_STYLE.idle;
+              return (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(s.id)}
+                    className="flex w-full items-center gap-2 rounded-xl border border-strong bg-surface-low/40 p-3 text-left transition hover:bg-surface-low"
+                  >
+                    <span
+                      className={`inline-block h-2 w-2 shrink-0 rounded-full ${style.dot} ${
+                        s.status === "working" ? "animate-pulse" : ""
+                      }`}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-foreground">
+                        {s.title}
+                      </span>
+                      <span className="block text-[11px] text-muted">
+                        {s.status}
+                        {!s.live && s.status !== "working" ? " · resumable" : ""}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-muted">→</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SessionDetail({ id, onBack }: { id: string; onBack: () => void }) {
+  const [events, setEvents] = useState<Map<number, SessionEvent>>(new Map());
+  const [meta, setMeta] = useState<SessionMeta | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [input, setInput] = useState("");
+  const cursorRef = useRef(-1);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Load meta once for the title/status header.
+  useEffect(() => {
+    fetch(`/api/dev/sessions/${id}`)
+      .then((r) => r.json())
+      .then(setMeta)
+      .catch(() => {});
+  }, [id]);
+
+  // Live event stream with cursor-advancing auto-reconnect. On any drop (next
+  // dev restart, network blip) we close and reopen with the last seq we saw, so
+  // the daemon replays only what we missed. Events are keyed by seq, so the
+  // small overlap on reconnect dedupes itself.
+  useEffect(() => {
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout>;
+
+    function connect() {
+      if (stopped) return;
+      const es = new EventSource(
+        `/api/dev/sessions/${id}/stream?cursor=${cursorRef.current}`,
+      );
+      es.onopen = () => setConnected(true);
+      es.onmessage = (e) => {
+        let ev: SessionEvent;
+        try {
+          ev = JSON.parse(e.data) as SessionEvent;
+        } catch {
+          return;
+        }
+        cursorRef.current = Math.max(cursorRef.current, ev.seq);
+        setEvents((prev) => {
+          const next = new Map(prev);
+          next.set(ev.seq, ev);
+          return next;
+        });
+        if (ev.type === "status" && ev.status) {
+          setMeta((m) => (m ? { ...m, status: ev.status! } : m));
+        }
+      };
+      es.onerror = () => {
+        es.close();
+        setConnected(false);
+        if (!stopped) retry = setTimeout(connect, 1200);
+      };
+    }
+    connect();
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+    };
+  }, [id]);
+
+  const ordered = Array.from(events.values()).sort((a, b) => a.seq - b.seq);
+
+  // Pin to the latest message as events stream in.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [ordered.length]);
+
+  async function send() {
+    const text = input.trim();
+    if (!text) return;
+    setInput("");
+    setMeta((m) => (m ? { ...m, status: "working" } : m));
+    await fetch(`/api/dev/sessions/${id}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }).catch(() => {});
+  }
+
+  const working = meta?.status === "working";
+  const style = meta ? SESSION_STYLE[meta.status] ?? SESSION_STYLE.idle : null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Session header: back, title, status, controls. */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="-ml-1 rounded-full p-1.5 text-muted transition hover:bg-surface hover:text-foreground"
+          aria-label="Back to sessions"
+        >
+          ←
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-foreground">
+            {meta?.title ?? "Session"}
+          </p>
+          {meta ? (
+            <span className={`flex items-center gap-1.5 text-[11px] ${style?.label}`}>
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${style?.dot} ${working ? "animate-pulse" : ""}`}
+              />
+              {meta.status}
+              {!connected ? " · reconnecting…" : ""}
+            </span>
+          ) : null}
+        </div>
+        {working ? (
+          <button
+            type="button"
+            onClick={() => fetch(`/api/dev/sessions/${id}/stop`, { method: "POST" })}
+            className="rounded-full border border-strong px-3 py-1 text-xs text-muted transition hover:text-foreground"
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fetch(`/api/dev/sessions/${id}/resume`, { method: "POST" })}
+            className="rounded-full border border-strong px-3 py-1 text-xs text-muted transition hover:text-foreground"
+          >
+            Resume
+          </button>
+        )}
+      </div>
+
+      {!connected ? (
+        <p className="rounded-lg border border-brand-yellow/30 bg-brand-yellow/10 px-3 py-1.5 text-[11px] text-brand-yellow">
+          Lost the stream (dev server may be restarting). Reconnecting — the
+          session keeps running and nothing is lost.
+        </p>
+      ) : null}
+
+      {/* Transcript. Own scroll region so the input stays put. */}
+      <div
+        ref={scrollRef}
+        className="max-h-[52vh] space-y-2 overflow-y-auto rounded-2xl border border-strong bg-surface-low/30 p-3"
+      >
+        {ordered.length === 0 ? (
+          <p className="py-6 text-center text-xs text-subtle">
+            Waiting for output…
+          </p>
+        ) : (
+          ordered.map((ev) => <EventRow key={ev.seq} ev={ev} />)
+        )}
+      </div>
+
+      {/* Reply box. */}
+      <div className="flex items-end gap-2">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          rows={2}
+          placeholder="Reply… (↵ to send, ⇧↵ for newline)"
+          className="flex-1 resize-none rounded-xl border border-strong bg-surface-low px-3 py-2 text-sm text-foreground placeholder:text-subtle focus:border-primary focus:outline-none"
+          spellCheck={false}
+        />
+        <button
+          type="button"
+          onClick={send}
+          disabled={!input.trim()}
+          className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:opacity-90 active:bg-primary-dim disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Render one transcript event. User turns are right-aligned bubbles; assistant
+// text reads as prose; tool calls/results and status lines are compact and
+// muted so the conversation stays readable in a narrow drawer.
+function EventRow({ ev }: { ev: SessionEvent }) {
+  if (ev.type === "user") {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-primary/15 px-3 py-2 text-sm text-foreground">
+          {ev.text}
+        </div>
+      </div>
+    );
+  }
+  if (ev.type === "assistant") {
+    return (
+      <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+        {ev.text}
+      </div>
+    );
+  }
+  if (ev.type === "tool_use") {
+    return (
+      <details className="rounded-lg border border-strong bg-surface-low/50 px-2.5 py-1.5 text-[11px]">
+        <summary className="cursor-pointer text-muted">
+          <span className="text-primary-bright">⚙ {ev.name}</span>
+        </summary>
+        <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap font-mono text-[10px] text-subtle">
+          {JSON.stringify(ev.input, null, 2)}
+        </pre>
+      </details>
+    );
+  }
+  if (ev.type === "tool_result") {
+    return (
+      <details className="rounded-lg border border-strong bg-surface-low/30 px-2.5 py-1.5 text-[11px]">
+        <summary
+          className={`cursor-pointer ${ev.isError ? "text-failure" : "text-muted"}`}
+        >
+          {ev.isError ? "⚠ tool result" : "↳ tool result"}
+        </summary>
+        <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap font-mono text-[10px] text-subtle">
+          {ev.content}
+        </pre>
+      </details>
+    );
+  }
+  if (ev.type === "result") {
+    return (
+      <p className="border-t border-strong pt-2 text-center text-[11px] text-subtle">
+        {ev.isError ? "turn ended with an error" : "turn complete"}
+        {typeof ev.costUsd === "number"
+          ? ` · $${ev.costUsd.toFixed(4)}`
+          : ""}
+      </p>
+    );
+  }
+  if (ev.type === "error") {
+    return <p className="text-xs text-failure">{ev.text ?? ev.note ?? "error"}</p>;
+  }
+  if (ev.type === "health") {
+    return (
+      <p
+        className={`text-center text-[11px] ${ev.ok ? "text-success" : "text-brand-yellow"}`}
+      >
+        {ev.ok ? "✓ " : "⚠ "}
+        {ev.note}
+      </p>
+    );
+  }
+  if (ev.type === "fixer") {
+    return (
+      <div className="rounded-lg border border-brand-yellow/30 bg-brand-yellow/10 px-2.5 py-1.5 text-xs leading-relaxed text-brand-yellow">
+        <span className="mr-1">🔧</span>
+        <span className="whitespace-pre-wrap">{ev.text}</span>
+      </div>
+    );
+  }
+  if (ev.type === "status") {
+    return (
+      <p className="text-center text-[11px] text-subtle">
+        {ev.note ?? ev.status}
+      </p>
+    );
+  }
+  // log
+  return (
+    <p className="whitespace-pre-wrap font-mono text-[10px] text-subtle">
+      {ev.text}
+    </p>
   );
 }
 
